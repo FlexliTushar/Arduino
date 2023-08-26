@@ -3,6 +3,8 @@
 #include<WiFi.h>
 #include<WiFiUdp.h>
 #include<elapsedMillis.h>
+#include<EEPROM.h>
+#include<HTTPClient.h>
 using namespace std;
 
 bool udp_looptime_flag = false;
@@ -11,8 +13,8 @@ const int UDP_PORT = 9999;
 char *UDP_IP = "192.168.2.109";
 WiFiUDP udp;
 elapsedMillis pkt_response_time;
-string BOT_ID = "B1";
-
+string BOT_ID;
+String bot_id = "";
 int occupy_index = 0;
 int path_index = 0;
 const vector<string> PLANNED_PATH{"I1", "D1", "D2", "D3", "D4", "D5", "D6", "S14", "S15", "S17", "C4", "S21", "S22", "S23", "S24", 
@@ -31,25 +33,124 @@ string assignedStation = "";
 string reservedStation = "";
 string currentInfeed = "I1";
 vector<string> infeed_list{"I1", "I2", "I3", "I4"};
+string debug_logging_string = "";
+string space = " ";
+string vert = " | ";
+
+const char *SSID = "TP-Link_35E3";
+const char *PASSWORD = "msort@flexli";
+
+const String HTTP_DEBUG_SERVER_URL = "http://192.168.2.109:8080/data";
+
+
+
 
 string message = "Hello Arduino";
 vector<string> dropOff(4, "X");
+TaskHandle_t http_debug_log;
+HTTPClient http_debugger;
+
+void add_log(string log) {
+  
+  if (true) {
+    debug_logging_string = debug_logging_string + space + log;
+    debug_logging_string += vert;
+  } else {
+    Serial.println(log.c_str());
+  }
+}
+
+// Core 2 finction which is sending http post request to debugger with debug logs as payload
+void HTTP_DEBUG_LOGGER(void *pvParameters) {
+  while (true) {
+    // if (publish_debug_log_flag) {
+    // publish_debug_log_flag = false;
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+    http_debugger.begin(HTTP_DEBUG_SERVER_URL);
+    int httpCode = -1;
+    httpCode = http_debugger.POST(debug_logging_string.c_str());
+    // add_log(String(httpCode));
+
+    if (httpCode == HTTP_CODE_OK) {
+      debug_logging_string = BOT_ID + space;
+      //String payload = http_debugger.getString();
+    }
+  }
+}
+
+vector<string> split_string(string &path, char delimiter) {
+  string temp = "";
+  vector<string> ans;
+  for (int i = 0; i < path.length(); i++) {
+    if(path[i] != delimiter) {
+      temp += path[i];
+    }
+    else {
+      ans.push_back(temp);
+      temp = "";
+    }
+  }
+  ans.push_back(temp);
+  return ans;
+}
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);
+  // Serial.begin(9600);
 
-  Serial.println(message.c_str());
-  Serial.print("Length: ");
-  Serial.println(message.length());  
+  // Serial.println(message.c_str());
+  // Serial.print("Length: ");
+  // Serial.println(message.length());  
 
-  string subString = message.substr(6,5);
-  Serial.println(subString.c_str());
+  // string subString = message.substr(6,5);
+  // Serial.println(subString.c_str());
+  
+  Serial.begin(115200);
+  while (!Serial)
+    ;
+  // initalizing EEPROM and reseting ESP if it fails
+  if (!EEPROM.begin(1000)) {
+    add_log("Failed to initialise EEPROM");
+    add_log("ESP32 Restarting...");
+    delay(1000);
+    ESP.restart();
+  } else {
+    //add_log("EEPROM working fine");
+    bot_id = EEPROM.readString(20);
+    int str_len = bot_id.length() + 1; 
+    // Prepare the character array (the buffer) 
+    char char_array[str_len];
+
+    // Copy it over 
+    bot_id.toCharArray(char_array, str_len);
+    BOT_ID = char_array;
+    // BOT_ID = "B1";
+  }
+  add_log(string("BOT ID = ") + BOT_ID + string("Firmware: ") + __FILE__);
+
+  add_log("Connecting... " + string(SSID) + " " + string(PASSWORD));
+  WiFi.begin(SSID, PASSWORD);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    add_log(".");
+    delay(500);
+  }
+  //ack_led.actuate(Relay::_ON);
+  add_log(" Wifi Connected! : ");
+  // creating a core 2 task to handle debugger http request
+  xTaskCreatePinnedToCore(
+    HTTP_DEBUG_LOGGER,
+    "debug_logging",
+    10000,
+    NULL,
+    1,
+    &http_debug_log,
+    1);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  _loop_start_time = millis();
+  // _loop_start_time = millis();
   if(true) {
     if(find(infeed_list.begin(), infeed_list.end(), currentStation) != infeed_list.end())
     {
@@ -140,7 +241,7 @@ void loop() {
     }
     else  // diverting rules when bot is at a special station not listed in planned path -> so it turns out to be an unexpected station
     {
-      add_log("unexpected station - stop current station: " + currentStation + " expexted station: " + exceptedStation);
+      add_log(string("unexpected station - stop current station: ") + currentStation + string(" expexted station: ") + expectedStation);
     }
   }
 }
@@ -153,7 +254,7 @@ string UDP_req_resp() {
     string rule = "N";
     if(find(dropOff.begin(), dropOff.end(), assignedStation) != dropOff.end())
     {
-      rule = "D";
+      // rule = "D";
     }
     add_log("UDP Request: ");
     // Start preparing the request | Format = Bot_Id_Response_Id_OccupiedStationId_Node_Id_AllocatedStationId_AssignedStationId_ReservedStationId_MotorStatus_Rule_InfeedStationId
@@ -177,9 +278,9 @@ string UDP_req_resp() {
         string incomingPacketStr = incomingPacket;
         add_log("T: " + to_string(pkt_response_time) + " " + incomingPacketStr);
         int index = 0;       // gives index of 1st underscore
-        for(;index<udp_response.size();index++)
+        for(;index<incomingPacketStr.size();index++)
         {
-          if(udp_response[index] == '_')
+          if(incomingPacketStr[index] == '_')
           {
             break;
           }
@@ -241,22 +342,4 @@ void change_planned_path(string rule)
       planned_path.push_back(DYNAMIC_INFEED_PATH[i]);
     }
   }
-}
-
-vector<string> split_string(string &path, char delimiter) {
-  length = 1;
-  string temp = "";
-  vector<string> ans;
-  for (int i = 0; i < path.length(); i++) {
-    if(path[i] != delimiter) {
-      temp += path[i];
-    }
-    else {
-      ans.push_back(temp);
-      temp = "";
-      length++;
-    }
-    
-    ans.push_back(temp);
-    return ans;
 }
