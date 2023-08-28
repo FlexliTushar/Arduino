@@ -7,14 +7,12 @@
 #include<HTTPClient.h>
 using namespace std;
 
-bool udp_looptime_flag = false;
 int udp_request_id = 0;
 const int UDP_PORT = 9999;
 char *UDP_IP = "192.168.2.109";
 WiFiUDP udp;
 elapsedMillis pkt_response_time;
-string BOT_ID;
-String bot_id = "";
+String BOT_ID = "";
 int occupy_index = 0;
 int path_index = 0;
 const vector<string> PLANNED_PATH{"I1", "D1", "D2", "D3", "D4", "D5", "D6", "S14", "S15", "S17", "C4", "S21", "S22", "S23", "S24", 
@@ -41,9 +39,6 @@ const char *SSID = "TP-Link_35E3";
 const char *PASSWORD = "msort@flexli";
 
 const String HTTP_DEBUG_SERVER_URL = "http://192.168.2.109:8080/data";
-
-
-
 
 string message = "Hello Arduino";
 vector<string> dropOff(4, "X");
@@ -106,16 +101,18 @@ void setup() {
   // Serial.println(subString.c_str());
   
   Serial.begin(115200);
-  while (!Serial)
-    ;
+  while (!Serial);
   // initalizing EEPROM and reseting ESP if it fails
-  if (!EEPROM.begin(1000)) {
+  if (!EEPROM.begin(1000)) 
+  {
     add_log("Failed to initialise EEPROM");
     add_log("ESP32 Restarting...");
     delay(1000);
     ESP.restart();
-  } else {
-    //add_log("EEPROM working fine");
+  } 
+  else 
+  {
+    add_log("EEPROM working fine");
     bot_id = EEPROM.readString(20);
     int str_len = bot_id.length() + 1; 
     // Prepare the character array (the buffer) 
